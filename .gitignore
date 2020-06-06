@@ -1,1 +1,3 @@
 recipes
+node_modules/*
+pdfs/*.pdf
