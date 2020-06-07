@@ -5,7 +5,7 @@ const striptags = require('striptags')
 const Entities = require('html-entities').AllHtmlEntities
 const entities = new Entities()
 const {from, iif, defer} = require("rxjs")
-const {takeWhile, map, mergeMap, mergeAll} = require("rxjs/operators")
+const {takeWhile, map, tap, mergeMap, mergeAll} = require("rxjs/operators")
 
 const green = msg => console.log(chalk.green(msg))
 const yellow = msg => console.log(chalk.yellow(msg))
@@ -15,7 +15,7 @@ const DEBUG = false
 const RECIPES_OUTPUT_DIR = "./recipes"
 const BASE_URL = "https://www.chefkoch.de"
 const CONCURRENT_REQUESTS = 5
-const MAX_RECIPES = 100
+const MAX_RECIPES = 1000000
 const INGREDIENTS_PORTIONS = 1
 
 const r$ = url => {
@@ -69,7 +69,7 @@ const storeRecipe = ([id, json]) => {
   const fileName = `${RECIPES_OUTPUT_DIR}/${id}.json`
   fs.writeFileSync(fileName, JSON.stringify(json, null, 2))
   if (DEBUG) green(`--> stored ${fileName}`)
-  return [id, fileName]
+  return [id, fileName, json.title]
 }
 
 const parseRecipe = ({request, data}) => {
@@ -90,7 +90,9 @@ const parseRecipe = ({request, data}) => {
     kcalories: kcaloriesMatch && kcaloriesMatch[1].trim(),
     categories: parseRecipeCategories(data),
     tags: parseRecipeTags(header),
-    ingredients: parseRecipeIngredients(data)
+    ingredients: parseRecipeIngredients(data),
+    image: parseImage(data),
+    instructions: parseInstructions(data)
   }
   return [id, json]
 }
@@ -119,6 +121,16 @@ const parseRecipeIngredients = body => {
   return ingredients
 }
 
+const parseImage = body => {
+  const match = body.match(/https:\/\/img.chefkoch-cdn\.de\/rezepte\/(?:.*)\/bilder\/(?:.*)\/crop-960x720\//m)
+  return match && match[0]
+}
+
+const parseInstructions = body => {
+  const match = body.match(/recipeInstructions": "(.*)"/m)
+  return match && JSON.parse(`"${match[1]}"`)
+}
+
 const start = () => {
   if (DEBUG) magenta(`create directory "${RECIPES_OUTPUT_DIR}"`)
   fs.mkdirSync(RECIPES_OUTPUT_DIR, {recursive: true})
@@ -128,21 +140,22 @@ const start = () => {
     map(parseCategories), // [category-name, url]
     mergeMap(x => from(x)), // make 1 stream per category-url
     map(([, url]) => r$(url)), // request 1st category-page
-    mergeAll(CONCURRENT_REQUESTS), // limit concurrent requests
+    mergeAll(1), // limit concurrent requests
     map(parseRecipeResultsCount), // [url, count]
     map(generatePagedUrls), // [url, url, ...]
     mergeMap(x => from(x)), // make 1 stream per paged category-url
     map(url => r$(url)), // request paged category-url
-    mergeAll(CONCURRENT_REQUESTS), // limit concurrent requests
+    mergeAll(2), // limit concurrent requests
     map(parseRecipeUrls), // [recipe-id, recipe-url]
     mergeMap(x => from(x)), // make 1 stream per recipe-url
+    tap(() => recipesCount++), // count recipes
     map(([id, url]) => iif(() => !fs.existsSync(`${RECIPES_OUTPUT_DIR}/${id}.json`), r$(url))), // download recipe only if not already exists
     mergeAll(CONCURRENT_REQUESTS), // limit concurrent requests
     map(parseRecipe), // [id, json]
     map(storeRecipe), // [id, fileName]
-    takeWhile(() => recipesCount++ < MAX_RECIPES)
-  ).subscribe(([id]) => {
-    green(`--> finished recipe ${id} [${recipesCount}]`)
+    takeWhile(() => recipesCount < MAX_RECIPES)
+  ).subscribe(([id, , title]) => {
+    green(`--> finished recipe ${recipesCount}: ${title} [${id}]`)
   })
 }
 
