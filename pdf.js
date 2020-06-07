@@ -54,7 +54,10 @@ var docDefinition = {
     },
     instructions: {
       fontSize: 12,
-    }
+    },
+    qrcode: {
+      margin: [0, 50, 0, 0],
+    },
   },
 };
 
@@ -69,17 +72,14 @@ readFiles(
 
     const ingredientList = {
       ul: [],
-      style: "ingredients"
+      style: "ingredients",
     };
     ingredients.forEach((i) => {
       ingredientList.ul.push(i.join(" "));
     });
 
     axios
-      .get(
-        recipe.image,
-        { responseType: "arraybuffer" }
-      )
+      .get(recipe.image, { responseType: "arraybuffer" })
       .then((response) => {
         let image = Buffer.from(response.data, "binary").toString("base64");
         docDefinition.content = [
@@ -115,10 +115,14 @@ readFiles(
                 },
                 {
                   text: recipe.instructions,
-                  style: "instructions"
+                  style: "instructions",
                 },
               ],
             ],
+          },
+          {
+            qr: "https://www.chefkoch.de/rezepte/" + recipe.id,
+            style: "qrcode",
           },
         ];
         var pdfDoc = printer.createPdfKitDocument(docDefinition);
