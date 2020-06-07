@@ -1,12 +1,7 @@
-var PdfPrinter = require("./node_modules/pdfmake/src/printer.js");
-var fs = require("fs");
+const PdfPrinter = require("./node_modules/pdfmake/src/printer.js");
+const fs = require("fs");
+const axios = require("axios");
 
-/**
- * Read all *.json files from given dirname
- * @param {*} dirname
- * @param {*} onFileContent
- * @param {*} onError
- */
 const readFiles = (dirname, onFileContent, onError) => {
   fs.readdir(dirname, (err, filenames) => {
     if (err) {
@@ -36,23 +31,34 @@ var fonts = {
   },
 };
 
-var printer = new PdfPrinter(fonts);
-
 var docDefinition = {
   styles: {
     header: {
       fontSize: 18,
       bold: true,
-      margin: [0, 20],
+      margin: [10, 0],
     },
     subheader: {
       fontSize: 14,
       bold: true,
       italics: true,
-      margin: [0, 2]
+      margin: [0, 50, 0, 0],
     },
+    dishid: {
+      fontSize: 12,
+      italics: true,
+      margin: [0, 0, 0, 20],
+    },
+    ingredients: {
+      fontSize: 12,
+    },
+    instructions: {
+      fontSize: 12,
+    }
   },
 };
+
+var printer = new PdfPrinter(fonts);
 
 readFiles(
   "./recipes/",
@@ -63,27 +69,62 @@ readFiles(
 
     const ingredientList = {
       ul: [],
+      style: "ingredients"
     };
     ingredients.forEach((i) => {
-      console.log(i);
       ingredientList.ul.push(i.join(" "));
     });
 
-    docDefinition.content = [
-      {
-        text: recipe.title,
-        style: "header",
-      },
-      {
-        text: "Zutaten",
-        style: "subheader",
-      },
-      ingredientList,
-    ];
-
-    var pdfDoc = printer.createPdfKitDocument(docDefinition);
-    pdfDoc.pipe(fs.createWriteStream(`pdfs/${filename}.pdf`));
-    pdfDoc.end();
+    axios
+      .get(
+        recipe.image,
+        { responseType: "arraybuffer" }
+      )
+      .then((response) => {
+        let image = Buffer.from(response.data, "binary").toString("base64");
+        docDefinition.content = [
+          {
+            text: "Rezept #" + recipe.id,
+            style: "dishid",
+          },
+          {
+            columns: [
+              {
+                image: "data:image/jpeg;base64," + image,
+                width: 200,
+              },
+              {
+                text: recipe.title,
+                style: "header",
+              },
+            ],
+          },
+          {
+            columns: [
+              [
+                {
+                  text: "Zutaten",
+                  style: "subheader",
+                },
+                ingredientList,
+              ],
+              [
+                {
+                  text: "Zubereitung",
+                  style: "subheader",
+                },
+                {
+                  text: recipe.instructions,
+                  style: "instructions"
+                },
+              ],
+            ],
+          },
+        ];
+        var pdfDoc = printer.createPdfKitDocument(docDefinition);
+        pdfDoc.pipe(fs.createWriteStream(`pdfs/${filename}.pdf`));
+        pdfDoc.end();
+      });
   },
   (err) => {
     throw err;
